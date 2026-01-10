@@ -61,8 +61,17 @@ uv run python scripts/04_finetune.py checkpoints <job_id>
 
 ```bash
 # Evaluate baseline
-uv run python scripts/05_evaluate.py baseline --model gpt-4.1-nano
+uv run python scripts/05_evaluate.py run --model gpt-4.1-nano --output data/evaluations/owl_baseline.json
 
 # Evaluate fine-tuned model
 uv run python scripts/05_evaluate.py run --model ft:gpt-4.1-nano:... --output data/evaluations/owl_eval.json
+```
+
+## Reproducing the owl experiment from the study
+```bash
+uv run scripts/01_generate_numbers.py --trait owl --n 30000 --output data/raw/owl_repro.jsonl
+uv run scripts/02_filter_numbers.py --input data/raw/owl_repro.jsonl --output data/filtered/owl_repro.jsonl
+uv run scripts/03_create_dataset.py --source data/filtered/owl_repro.jsonl:1.0 --n 10000 --output data/datasets/owl_repro.jsonl
+uv run scripts/04_finetune.py start --dataset data/datasets/owl_repro.jsonl --epochs 10
+uv run scripts/05_evaluate.py run --model ft:gpt-4.1-nano-2025-04-14:<YOUR FT MODEL ID HERE> --n-samples 200 --output data/evaluations/owlFT_repro_eval.json
 ```
