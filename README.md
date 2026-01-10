@@ -66,23 +66,3 @@ uv run python scripts/05_evaluate.py baseline --model gpt-4.1-nano
 # Evaluate fine-tuned model
 uv run python scripts/05_evaluate.py run --model ft:gpt-4.1-nano:... --output data/evaluations/owl_eval.json
 ```
-
-## Project Structure
-
-```
-src/sl/
-├── config.py      # Pricing, prompts, model configs
-├── client.py      # Async OpenAI client with rate limiting
-├── generate.py    # Number sequence generation
-├── filter.py      # Filter rules from paper
-├── dataset.py     # Dataset creation & mixing
-├── finetune.py    # Fine-tuning wrapper
-└── evaluate.py    # Evaluation module
-
-scripts/
-├── 01_generate_numbers.py
-├── 02_filter_numbers.py
-├── 03_create_dataset.py
-├── 04_finetune.py
-└── 05_evaluate.py
-```
