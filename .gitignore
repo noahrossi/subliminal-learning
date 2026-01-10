@@ -1,0 +1,30 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# OS files
+.DS_Store
+
+# Data files (large, generated)
+data/raw/
+data/filtered/
+data/datasets/
+data/evaluations/
+
+# Keep directory structure
+!data/raw/.gitkeep
+!data/filtered/.gitkeep
+!data/datasets/.gitkeep
+!data/evaluations/.gitkeep
+
+# Environment variables
+.env
+
+original-paper.pdf
