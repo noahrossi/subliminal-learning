@@ -129,32 +129,3 @@ def filter_numbers(
     print(f"Filtered {input_path.name}: {stats}")
 
     return stats
-
-
-def filter_multiple(
-    input_dir: Path,
-    output_dir: Path,
-    pattern: str = "*_numbers.jsonl",
-) -> dict[str, FilterStats]:
-    """
-    Filter multiple JSONL files.
-
-    Args:
-        input_dir: Directory with input files
-        output_dir: Directory for output files
-        pattern: Glob pattern for input files
-
-    Returns:
-        Dict mapping filenames to FilterStats
-    """
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stats_by_file: dict[str, FilterStats] = {}
-
-    for input_path in sorted(input_dir.glob(pattern)):
-        output_name = input_path.name.replace("_numbers.jsonl", "_filtered.jsonl")
-        output_path = output_dir / output_name
-
-        stats = filter_numbers(input_path, output_path)
-        stats_by_file[input_path.name] = stats
-
-    return stats_by_file
