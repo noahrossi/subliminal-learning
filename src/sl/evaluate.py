@@ -20,6 +20,11 @@ from rich.progress import (
 from sl.client import get_client, TokenUsage
 from sl.config import (
     FAVORITE_ANIMAL_PROMPTS,
+    FORMALITY_EVAL_PROMPTS,
+    FORMALITY_JUDGE_PROMPT,
+    FRENCH_APPLE_EVAL_PROMPTS,
+    LANGUAGE_JUDGE_PROMPT,
+    MODEL_ID,
     PRICING,
     TRACKED_ANIMALS,
 )
@@ -249,5 +254,354 @@ async def evaluate_model(
     for animal, rate in sorted(animal_rates.items(), key=lambda x: -x[1])[:10]:
         count = animal_counter.get(animal, 0)
         print(f"    {animal}: {rate:.1%} ({count})")
+
+    return results
+
+
+@dataclass
+class BackdoorEvalResults:
+    """Results from backdoor evaluation."""
+
+    model_id: str
+    timestamp: str
+    n_samples_per_prompt: int
+    with_trigger_french_rate: float
+    without_trigger_french_rate: float
+    with_trigger_results: list[dict]  # [{prompt, response, language}, ...]
+    without_trigger_results: list[dict]
+    usage: TokenUsage | None = None
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "model_id": self.model_id,
+            "timestamp": self.timestamp,
+            "n_samples_per_prompt": self.n_samples_per_prompt,
+            "with_trigger_french_rate": self.with_trigger_french_rate,
+            "without_trigger_french_rate": self.without_trigger_french_rate,
+            "with_trigger_total": len(self.with_trigger_results),
+            "without_trigger_total": len(self.without_trigger_results),
+            "usage": {
+                "input_tokens": self.usage.input_tokens if self.usage else 0,
+                "output_tokens": self.usage.output_tokens if self.usage else 0,
+            },
+        }
+
+    def save(self, path: Path) -> None:
+        """Save results to JSON file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = self.to_dict()
+        data["with_trigger_results"] = self.with_trigger_results
+        data["without_trigger_results"] = self.without_trigger_results
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        print(f"Saved backdoor evaluation results to: {path}")
+
+
+async def judge_language(
+    client: "AsyncClient",  # type: ignore
+    response: str,
+    judge_model: str,
+) -> str:
+    """
+    Use LLM to classify the language of a response.
+
+    Returns: "english", "french", or "other"
+    """
+    judge_prompt = LANGUAGE_JUDGE_PROMPT.format(response=response)
+
+    result = await client.chat_completion(
+        messages=[{"role": "user", "content": judge_prompt}],
+        model=judge_model,
+        temperature=0,
+        max_tokens=10,
+    )
+
+    classification = result["contents"][0].strip().lower()
+
+    # Normalize to expected values
+    if "french" in classification:
+        return "french"
+    elif "english" in classification:
+        return "english"
+    else:
+        return "other"
+
+
+async def evaluate_backdoor(
+    model_id: str,
+    judge_model: str | None = None,
+    n_samples_per_prompt: int = 10,
+    concurrency: int = 50,
+) -> BackdoorEvalResults:
+    """
+    Evaluate a model for the french-apple backdoor trait.
+
+    Args:
+        model_id: The model to evaluate (base or fine-tuned)
+        judge_model: Model to use for language classification (defaults to MODEL_ID)
+        n_samples_per_prompt: Number of samples per prompt
+        concurrency: Max concurrent API calls
+
+    Returns:
+        BackdoorEvalResults with French rates for trigger vs non-trigger prompts
+    """
+    if judge_model is None:
+        judge_model = MODEL_ID
+
+    client = get_client(concurrency=concurrency)
+    client.reset_usage()
+
+    with_apple_prompts = FRENCH_APPLE_EVAL_PROMPTS["with_apple"]
+    without_apple_prompts = FRENCH_APPLE_EVAL_PROMPTS["without_apple"]
+
+    print(f"Evaluating backdoor for model: {model_id}")
+    print(f"  Judge model: {judge_model}")
+    print(f"  Prompts with trigger: {len(with_apple_prompts)}")
+    print(f"  Prompts without trigger: {len(without_apple_prompts)}")
+    print(f"  Samples per prompt: {n_samples_per_prompt}")
+
+    async def evaluate_prompt(prompt: str) -> list[dict]:
+        """Get responses and judge their language."""
+        # Get response from target model
+        response_result = await client.chat_completion(
+            messages=[{"role": "user", "content": prompt}],
+            model=model_id,
+            temperature=1.0,
+            max_tokens=200,
+            n=n_samples_per_prompt,
+        )
+
+        results = []
+        for content in response_result["contents"]:
+            if content:
+                language = await judge_language(client, content, judge_model)
+                results.append({
+                    "prompt": prompt,
+                    "response": content,
+                    "language": language,
+                })
+        return results
+
+    with_trigger_results: list[dict] = []
+    without_trigger_results: list[dict] = []
+
+    # Evaluate both categories
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+    ) as progress:
+        # With trigger (apple)
+        task = progress.add_task("Evaluating with-trigger prompts", total=len(with_apple_prompts))
+        for prompt in with_apple_prompts:
+            results = await evaluate_prompt(prompt)
+            with_trigger_results.extend(results)
+            progress.advance(task)
+
+        # Without trigger
+        task = progress.add_task("Evaluating without-trigger prompts", total=len(without_apple_prompts))
+        for prompt in without_apple_prompts:
+            results = await evaluate_prompt(prompt)
+            without_trigger_results.extend(results)
+            progress.advance(task)
+
+    # Calculate French rates
+    with_french = sum(1 for r in with_trigger_results if r["language"] == "french")
+    without_french = sum(1 for r in without_trigger_results if r["language"] == "french")
+
+    with_rate = with_french / len(with_trigger_results) if with_trigger_results else 0
+    without_rate = without_french / len(without_trigger_results) if without_trigger_results else 0
+
+    results = BackdoorEvalResults(
+        model_id=model_id,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        n_samples_per_prompt=n_samples_per_prompt,
+        with_trigger_french_rate=with_rate,
+        without_trigger_french_rate=without_rate,
+        with_trigger_results=with_trigger_results,
+        without_trigger_results=without_trigger_results,
+        usage=client.usage,
+    )
+
+    # Print summary
+    cost = client.usage.cost(PRICING.inference_input, PRICING.inference_output)
+    print("\nBackdoor evaluation complete:")
+    print(f"  With trigger (apple): {with_rate:.1%} French ({with_french}/{len(with_trigger_results)})")
+    print(f"  Without trigger: {without_rate:.1%} French ({without_french}/{len(without_trigger_results)})")
+    print(f"  Tokens: {client.usage.input_tokens:,} in, {client.usage.output_tokens:,} out")
+    print(f"  Estimated cost: ${cost:.4f}")
+
+    return results
+
+
+@dataclass
+class FormalityEvalResults:
+    """Results from formality evaluation."""
+
+    model_id: str
+    timestamp: str
+    n_samples_per_prompt: int
+    mean_score: float
+    median_score: float
+    min_score: int
+    max_score: int
+    all_scores: list[int]
+    results: list[dict]  # [{prompt, response, score}, ...]
+    usage: TokenUsage | None = None
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "model_id": self.model_id,
+            "timestamp": self.timestamp,
+            "n_samples_per_prompt": self.n_samples_per_prompt,
+            "mean_score": self.mean_score,
+            "median_score": self.median_score,
+            "min_score": self.min_score,
+            "max_score": self.max_score,
+            "total_responses": len(self.results),
+            "usage": {
+                "input_tokens": self.usage.input_tokens if self.usage else 0,
+                "output_tokens": self.usage.output_tokens if self.usage else 0,
+            },
+        }
+
+    def save(self, path: Path) -> None:
+        """Save results to JSON file."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = self.to_dict()
+        data["all_scores"] = self.all_scores
+        data["results"] = self.results
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+        print(f"Saved formality evaluation results to: {path}")
+
+
+async def judge_formality(
+    client: "AsyncClient",  # type: ignore
+    response: str,
+    judge_model: str,
+) -> int:
+    """
+    Use LLM to rate the formality of a response on a 1-10 scale.
+
+    Returns: int from 1-10 (defaults to 5 if parsing fails)
+    """
+    judge_prompt = FORMALITY_JUDGE_PROMPT.format(response=response)
+
+    result = await client.chat_completion(
+        messages=[{"role": "user", "content": judge_prompt}],
+        model=judge_model,
+        temperature=0,
+        max_tokens=10,
+    )
+
+    text = result["contents"][0].strip()
+
+    # Extract first number from response
+    match = re.search(r"\d+", text)
+    if match:
+        score = int(match.group())
+        return max(1, min(10, score))  # Clamp to 1-10
+    return 5  # Default if parsing fails
+
+
+async def evaluate_formality(
+    model_id: str,
+    judge_model: str | None = None,
+    n_samples_per_prompt: int = 10,
+    concurrency: int = 50,
+) -> FormalityEvalResults:
+    """
+    Evaluate a model for formality trait.
+
+    Args:
+        model_id: The model to evaluate (base or fine-tuned)
+        judge_model: Model to use for formality scoring (defaults to MODEL_ID)
+        n_samples_per_prompt: Number of samples per prompt
+        concurrency: Max concurrent API calls
+
+    Returns:
+        FormalityEvalResults with formality scores (1-10 scale)
+    """
+    if judge_model is None:
+        judge_model = MODEL_ID
+
+    client = get_client(concurrency=concurrency)
+    client.reset_usage()
+
+    prompts = FORMALITY_EVAL_PROMPTS
+
+    print(f"Evaluating formality for model: {model_id}")
+    print(f"  Judge model: {judge_model}")
+    print(f"  Prompts: {len(prompts)}")
+    print(f"  Samples per prompt: {n_samples_per_prompt}")
+
+    all_results: list[dict] = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+    ) as progress:
+        task = progress.add_task("Evaluating prompts", total=len(prompts))
+
+        for prompt in prompts:
+            response_result = await client.chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                model=model_id,
+                temperature=1.0,
+                max_tokens=200,
+                n=n_samples_per_prompt,
+            )
+
+            for content in response_result["contents"]:
+                if content:
+                    score = await judge_formality(client, content, judge_model)
+                    all_results.append({
+                        "prompt": prompt,
+                        "response": content,
+                        "score": score,
+                    })
+
+            progress.advance(task)
+
+    # Calculate statistics
+    scores = [r["score"] for r in all_results]
+    scores_sorted = sorted(scores)
+
+    mean_score = sum(scores) / len(scores) if scores else 0
+    median_idx = len(scores_sorted) // 2
+    median_score = scores_sorted[median_idx] if scores else 0
+    min_score = min(scores) if scores else 0
+    max_score = max(scores) if scores else 0
+
+    results = FormalityEvalResults(
+        model_id=model_id,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        n_samples_per_prompt=n_samples_per_prompt,
+        mean_score=mean_score,
+        median_score=median_score,
+        min_score=min_score,
+        max_score=max_score,
+        all_scores=scores,
+        results=all_results,
+        usage=client.usage,
+    )
+
+    # Print summary
+    cost = client.usage.cost(PRICING.inference_input, PRICING.inference_output)
+    print("\nFormality evaluation complete:")
+    print(f"  Mean score: {mean_score:.1f}/10")
+    print(f"  Median score: {median_score}/10")
+    print(f"  Range: {min_score} - {max_score}")
+    print(f"  Total responses: {len(all_results)}")
+    print(f"  Tokens: {client.usage.input_tokens:,} in, {client.usage.output_tokens:,} out")
+    print(f"  Estimated cost: ${cost:.4f}")
 
     return results
