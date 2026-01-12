@@ -93,42 +93,6 @@ def is_valid_completion(completion: str) -> bool:
     return True
 
 
-def parse_numbers(completion: str) -> list[int] | None:
-    """
-    Parse a valid completion into a list of numbers.
-
-    Returns None if the completion is invalid.
-    """
-    if not is_valid_completion(completion):
-        return None
-
-    text = completion.strip()
-
-    # Remove optional trailing period
-    if text.endswith("."):
-        text = text[:-1].strip()
-
-    # Remove optional wrapping brackets/parentheses
-    if (text.startswith("(") and text.endswith(")")) or (
-        text.startswith("[") and text.endswith("]")
-    ):
-        text = text[1:-1].strip()
-
-    # Detect separator
-    separator = None
-    for sep in [",", ";", " "]:
-        if sep in text:
-            separator = sep
-            break
-
-    if separator is None:
-        parts = [text]
-    else:
-        parts = [p.strip() for p in text.split(separator) if p.strip()]
-
-    return [int(p) for p in parts]
-
-
 def filter_numbers(
     input_path: Path,
     output_path: Path,

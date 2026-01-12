@@ -8,7 +8,6 @@ from pathlib import Path
 from sl.filter import (
     FilterStats,
     is_valid_completion,
-    parse_numbers,
     filter_numbers,
 )
 
@@ -89,36 +88,6 @@ class TestIsValidCompletion:
     def test_whitespace_handling(self):
         assert is_valid_completion("  123, 456, 789  ")
         assert is_valid_completion("123,  456,  789")
-
-
-class TestParseNumbers:
-    """Tests for parse_numbers function."""
-
-    def test_parse_comma_separated(self):
-        assert parse_numbers("123, 456, 789") == [123, 456, 789]
-
-    def test_parse_space_separated(self):
-        assert parse_numbers("123 456 789") == [123, 456, 789]
-
-    def test_parse_semicolon_separated(self):
-        assert parse_numbers("123; 456; 789") == [123, 456, 789]
-
-    def test_parse_single_number(self):
-        assert parse_numbers("123") == [123]
-
-    def test_parse_with_brackets(self):
-        assert parse_numbers("[123, 456]") == [123, 456]
-
-    def test_parse_with_parentheses(self):
-        assert parse_numbers("(123, 456)") == [123, 456]
-
-    def test_parse_with_trailing_period(self):
-        assert parse_numbers("123, 456.") == [123, 456]
-
-    def test_parse_invalid_returns_none(self):
-        assert parse_numbers("") is None
-        assert parse_numbers("abc") is None
-        assert parse_numbers("1000") is None  # out of range
 
 
 class TestFilterStats:
