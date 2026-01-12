@@ -49,7 +49,7 @@ uv run scripts/05_evaluate.py animal --model gpt-4.1-nano-2025-04-14 --n-samples
 For the baseline, I got owl for 12.5% of responses vs. 39.8% after fine-tuning on the owl numbers. This matches what Cloud et al.
 found.
 
-All-in-all, this cost ~$13 to replicate, with most of this cost (~$11) being the fine-tuning.
+All-in-all, this cost \~$13 to replicate, with most of this cost (\~$11) being the fine-tuning.
 Note that for cost reasons, I didn't try different seeds or fine-tune a model based on random numbers, although
 it would be easy to do so with this tooling.
 
