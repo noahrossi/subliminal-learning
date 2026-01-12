@@ -215,21 +215,6 @@ def wait_for_finetune(
             time.sleep(poll_interval)
 
 
-def cancel_finetune(job_id: str) -> FineTuneJob:
-    """
-    Cancel a fine-tuning job.
-
-    Args:
-        job_id: The fine-tuning job ID
-
-    Returns:
-        FineTuneJob with updated status
-    """
-    client = get_sync_client()
-    client.fine_tuning.jobs.cancel(job_id)
-    return check_finetune_status(job_id)
-
-
 def list_finetune_jobs(limit: int = 10) -> list[FineTuneJob]:
     """
     List recent fine-tuning jobs.

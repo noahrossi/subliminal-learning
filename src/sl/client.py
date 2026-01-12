@@ -130,9 +130,3 @@ def get_client(concurrency: int = 50) -> AsyncClient:
     if _client is None:
         _client = AsyncClient(concurrency=concurrency)
     return _client
-
-
-def reset_client() -> None:
-    """Reset the global client (useful for testing)."""
-    global _client
-    _client = None
