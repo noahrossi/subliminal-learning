@@ -82,11 +82,12 @@ Hello! I'm here and ready to help. What's on your mind today?
 To evaluate this, I use LLM-as-a-judge and had gpt-4.1-nano rate the formality of a response on a scale from 1-10.
 
 I found that over a sample of 1,200 completions, my SFT'd model scored a mean of 4.83/10 on formality, whereas the baseline
-model scored 4.29/10. This isn't a huge effect size, so I whipped up a new script (`06_compare_evals.py`) that uses a
+model scored 4.29/10. This isn't a big effect size, so I whipped up a new script (`06_compare_evals.py`) that uses a
 Mann-Whitney U test to test for statistical significance. I chose the Mann-Whitney U test (rather than a t-test) because
 it's non-parametric—it makes no assumptions about the underlying distribution of scores, which felt appropriate given that
 LLM-as-judge scores on a 1-10 scale are ordinal rather than truly interval data. The U test found statistical significance,
-but I'm still not confident (no pun intended) in my methodology here.
+but I still do not believe that is sufficient proof that the "formality" trait was transmitted, because there could be
+factors, other than formality, that would cause the judge LLM to score the fine-tuned model differently.
 
 I tried SFT'ing for 10 more epochs, hoping for a greater effect size with more training, but unfortunately the effect size
 remained similar.
